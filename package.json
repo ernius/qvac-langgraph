@@ -32,7 +32,7 @@
   },
   "peerDependencies": {
     "@langchain/core": "^1.2.12",
-    "@qvac/sdk": "^0.18.2"
+    "@qvac/sdk": "0.18.2"
   },
   "devDependencies": {
     "@langchain/core": "^1.2.12",
