@@ -1,0 +1,47 @@
+{
+  "name": "@space-uy/qvac-langgraph",
+  "version": "1.0.0",
+  "description": "LangChain chat model (ChatQVAC) that runs local QVAC completions, for use in LangChain runnables and LangGraph graphs.",
+  "type": "module",
+  "author": "ernius <ecopello@spacedev.io>",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "keywords": [
+    "qvac",
+    "LLM",
+    "langchain",
+    "langgraph"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/monatheoctocat/my_package.git"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "test": "vitest run",
+    "example:graph": "tsx examples/graphExample.ts",
+    "example:plain": "tsx examples/plainExample.ts"
+  },
+  "peerDependencies": {
+    "@langchain/core": "^1.2.12",
+    "@qvac/sdk": "^0.18.2"
+  },
+  "devDependencies": {
+    "@langchain/core": "^1.2.12",
+    "@langchain/langgraph": "^1.4.16",
+    "@qvac/sdk": "0.18.2",
+    "@types/node": "^24.13.6",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.1",
+    "zod": "^4.6.5"
+  }
+}
