@@ -9,7 +9,7 @@ The package is only the adapter. It does not load models, cancel requests or rec
 This package lives in the repo's npm workspace. Consumers need `@langchain/core` and `@qvac/sdk` installed alongside it - see [Compatibility](#compatibility) for the versions.
 
 ```ts
-import { ChatQVAC } from "qvac-langgraph";
+import { ChatQVAC } from "@space-uy/qvac-langgraph";
 ```
 
 ## Compatibility
@@ -19,9 +19,9 @@ The package targets specific versions of the libraries it connects to. Both are 
 | Library | Peer range | Tested with | Used for |
 | --- | --- | --- | --- |
 | `@langchain/core` | `^1.2.12` | 1.2.12 | `BaseChatModel`, messages, tool conversion. |
-| `@qvac/sdk` | `^0.18.2` | 0.18.2 | Types only (`Tool`, `ToolCall`, `CompletionStats`); the adapter never calls the SDK. |
+| `@qvac/sdk` | `0.18.2` | 0.18.2 | Types only (`Tool`, `ToolCall`, `CompletionStats`); the adapter never calls the SDK. |
 
-- `@qvac/sdk` is pre-1.0, so a caret range covers `0.18.x` only. A `0.19` release is outside the range until this package is checked against it and the range is widened.
+- `@qvac/sdk` covers `0.18.2` only
 - `@langchain/langgraph` is **not** a peer dependency: the adapter never imports it, so any LangGraph release that works with your `@langchain/core` can run `ChatQVAC`. It is only a dev dependency for the examples (`^1.4.16`, tested with 1.4.17).
 
 ## Usage
@@ -110,7 +110,7 @@ npm run example:graph --workspace=packages/qvac-langgraph   # LangGraph StateGra
 npm run example:plain --workspace=packages/qvac-langgraph   # plain loop over `complete`, no LangGraph/LangChain
 ```
 
-- [`examples/qvacComplete.ts`](./examples/qvacComplete.ts) - a working `complete` built on the SDK's `completion()`.
+- [`examples/qvacComplete.ts`](./examples/qvacComplete.ts) - a working `complete` built on the `@qvac/sdk` SDK's `completion()`.
 - [`examples/graphExample.ts`](./examples/graphExample.ts) - the pipeline as a graph, with a text diagram of the flow.
 - [`examples/plainExample.ts`](./examples/plainExample.ts) - the same pipeline as a hand-written loop, with a comment mapping each graph piece to its plain-code counterpart.
 
