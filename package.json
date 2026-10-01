@@ -21,6 +21,12 @@
     "type": "git",
     "url": "git+https://github.com/ernius/qvac-langgraph.git"
   },
+  "files": [
+    "dist/",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
