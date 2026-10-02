@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as z from "zod";
-import { AIMessage, AIMessageChunk, HumanMessage } from "@langchain/core/messages";
+import { AIMessage, AIMessageChunk, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { ChatQVAC } from "./chatQvac.js";
 import type {
@@ -12,6 +12,9 @@ import type {
 const CALL_OPTIONS = {} as Parameters<ChatQVAC["_generate"]>[1];
 
 const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x01, 0x02, 0x03]);
+
+/** A `complete` that never settles on its own, standing in for a long generation. */
+const neverSettles: QvacChatCompletionFn = () => new Promise(() => {});
 
 /** A fake `complete`: records every request, replays `tokens` through `onToken`, then resolves `result` (or rejects with `failWith`). */
 class RecordingCompletion {
@@ -61,6 +64,29 @@ describe("ChatQVAC._generate", () => {
     const model = new ChatQVAC({ complete: completion.complete });
 
     await expect(model._generate([new HumanMessage("hi")], CALL_OPTIONS)).rejects.toThrow("boom");
+  });
+
+  it("rejects as soon as the signal aborts, and forwards the signal to complete", async () => {
+    let forwarded: AbortSignal | undefined;
+    let markStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const model = new ChatQVAC({
+      complete: (request) => {
+        forwarded = request.signal;
+        markStarted();
+        return neverSettles(request);
+      },
+    });
+    const controller = new AbortController();
+
+    const pending = model.invoke([new HumanMessage("hi")], { signal: controller.signal });
+    await started;
+    controller.abort(new Error("stopped"));
+
+    await expect(pending).rejects.toThrow("stopped");
+    expect(forwarded?.aborted).toBe(true);
   });
 });
 
@@ -118,6 +144,62 @@ describe("ChatQVAC._streamResponseChunks", () => {
         // draining the generator
       }
     }).rejects.toThrow("boom");
+  });
+
+});
+
+describe("ChatQVAC tool-call history", () => {
+  it("replays tool calls in the SDK shape and tags each tool result with its call id and name", async () => {
+    const completion = new RecordingCompletion();
+    const model = new ChatQVAC({ complete: completion.complete });
+
+    await model.invoke([
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "call-1", name: "add", args: { a: 1, b: 2 } }],
+      }),
+      new ToolMessage({ content: "3", tool_call_id: "call-1", name: "add" }),
+    ]);
+
+    const [assistant, toolResult] = completion.lastRequest?.history ?? [];
+    expect(JSON.parse(assistant?.content ?? "")).toEqual({
+      tool_calls: [{ id: "call-1", name: "add", arguments: { a: 1, b: 2 } }],
+    });
+    expect(toolResult?.role).toBe("tool");
+    expect(JSON.parse(toolResult?.content ?? "")).toEqual({
+      tool_call_id: "call-1",
+      name: "add",
+      content: "3",
+    });
+  });
+});
+
+describe("ChatQVAC structured output", () => {
+  it("returns the parsed tool-call arguments from withStructuredOutput", async () => {
+    const completion = new RecordingCompletion();
+    completion.result = {
+      text: "",
+      toolCalls: [{ id: "call-1", name: "extract", arguments: { op: "add", a: 1, b: 2 } }],
+    };
+    const model = new ChatQVAC({ complete: completion.complete });
+    const schema = z.object({ op: z.enum(["add", "subtract"]), a: z.number(), b: z.number() });
+
+    const parsed = await model.withStructuredOutput(schema).invoke([new HumanMessage("hi")]);
+
+    expect(parsed).toEqual({ op: "add", a: 1, b: 2 });
+  });
+
+  it("forwards a per-call responseFormat", async () => {
+    const completion = new RecordingCompletion();
+    const model = new ChatQVAC({ complete: completion.complete });
+    const responseFormat = {
+      type: "json_schema",
+      json_schema: { name: "plan", schema: { type: "object" } },
+    } as const;
+
+    await model.invoke([new HumanMessage("hi")], { responseFormat });
+
+    expect(completion.lastRequest?.responseFormat).toEqual(responseFormat);
   });
 });
 
@@ -223,5 +305,25 @@ describe("ChatQVAC.bindTools", () => {
         },
       },
     ]);
+  });
+
+  it("collapses nullable and union property types to one SDK-supported type", async () => {
+    const completion = new RecordingCompletion();
+    const model = new ChatQVAC({ complete: completion.complete });
+
+    const filterTool = tool(() => "unused", {
+      name: "filter",
+      description: "Filter items",
+      schema: z.object({
+        limit: z.number().nullable(),
+        key: z.union([z.string(), z.number()]),
+      }),
+    });
+
+    await model.bindTools([filterTool]).invoke([new HumanMessage("hi")]);
+
+    const properties = completion.lastRequest?.tools?.[0]?.parameters.properties;
+    expect(properties?.limit?.type).toBe("number");
+    expect(properties?.key?.type).toBe("string");
   });
 });

@@ -9,5 +9,6 @@ export type {
   QvacChatCompletionResult,
   QvacChatImageAttachment,
   QvacChatMessage,
+  QvacResponseFormat,
   QvacSupportedImageMimeType,
 } from "./types.js";

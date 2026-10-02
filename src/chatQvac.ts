@@ -9,6 +9,7 @@ import {
   AIMessage,
   AIMessageChunk,
   type BaseMessage,
+  ToolMessage,
 } from "@langchain/core/messages";
 import type { ToolCall } from "@langchain/core/messages/tool";
 import { convertToOpenAITool } from "@langchain/core/utils/function_calling";
@@ -22,6 +23,7 @@ import type {
   QvacChatCompletionResult,
   QvacChatImageAttachment,
   QvacChatMessage,
+  QvacResponseFormat,
   QvacSupportedImageMimeType,
 } from "./types.js";
 
@@ -33,12 +35,17 @@ const QVAC_ROLE_BY_MESSAGE_TYPE: Record<string, string> = {
 };
 
 type QvacToolProperty = Tool["parameters"]["properties"][string];
+type QvacToolPropertyType = QvacToolProperty["type"];
+
+interface JsonSchemaProperty {
+  type?: string | string[];
+  anyOf?: Array<{ type?: string | string[] }>;
+  description?: string;
+  enum?: unknown[];
+}
 
 interface JsonSchemaObject {
-  properties?: Record<
-    string,
-    { type?: string; description?: string; enum?: unknown[] }
-  >;
+  properties?: Record<string, JsonSchemaProperty>;
   required?: string[];
 }
 
@@ -57,6 +64,31 @@ export interface ChatQVACCallOptions extends BaseChatModelCallOptions {
   sessionId?: string;
   /** Caller-assigned id for this specific generation call, forwarded in the completion request. */
   requestId?: string;
+  /** Structured-output constraint, forwarded in the completion request. Cannot be combined with `tools`. */
+  responseFormat?: QvacResponseFormat;
+}
+
+const QVAC_PROPERTY_TYPES: ReadonlySet<string> = new Set<QvacToolPropertyType>([
+  "string",
+  "number",
+  "integer",
+  "boolean",
+  "object",
+  "array",
+]);
+
+function isQvacPropertyType(type: unknown): type is QvacToolPropertyType {
+  return typeof type === "string" && QVAC_PROPERTY_TYPES.has(type);
+}
+
+/**
+ * The SDK accepts a single type per property. A nullable property
+ * (`type: ["number", "null"]`) keeps its non-null type, a union (`anyOf`)
+ * keeps its first supported member's type, and anything else is `string`.
+ */
+function toQvacPropertyType(property: JsonSchemaProperty): QvacToolPropertyType {
+  const declared = [property.type, ...(property.anyOf ?? []).map((member) => member.type)].flat();
+  return declared.find(isQvacPropertyType) ?? "string";
 }
 
 /**
@@ -64,6 +96,7 @@ export interface ChatQVACCallOptions extends BaseChatModelCallOptions {
  * The underlying completion engine's tool schema only supports
  * primitive-typed properties (no nested object/array item schemas), so
  * only `type`/`description`/`enum` survive - that's all it accepts.
+ * Nested shapes belong in `responseFormat` instead, which takes a full schema.
  */
 function toChatTool(tool: BindToolsInput): Tool {
   const { function: fn } = convertToOpenAITool(
@@ -74,7 +107,7 @@ function toChatTool(tool: BindToolsInput): Tool {
   const properties: Record<string, QvacToolProperty> = {};
   for (const [key, value] of Object.entries(schema.properties ?? {})) {
     properties[key] = {
-      type: (value.type as QvacToolProperty["type"]) ?? "string",
+      type: toQvacPropertyType(value),
       description: value.description,
       enum: value.enum as QvacToolProperty["enum"],
     };
@@ -128,20 +161,46 @@ function toChatMessage(message: BaseMessage): QvacChatMessage {
   const role = QVAC_ROLE_BY_MESSAGE_TYPE[message.type] ?? "user";
 
   // Tool-call turns carry no dedicated field in `QvacChatMessage`; serialize
-  // them (alongside any accompanying text) so the model can see its own
-  // prior turn when the history is replayed.
+  // them (alongside any accompanying text) in the SDK's own `ToolCall` shape
+  // so the model can see its own prior turn when the history is replayed.
   if (AIMessage.isInstance(message) && message.tool_calls?.length) {
     return {
       role,
       content: JSON.stringify({
         ...(message.text ? { text: message.text } : {}),
-        tool_calls: message.tool_calls,
+        tool_calls: message.tool_calls.map(({ id, name, args }) => ({ id, name, arguments: args })),
+      }),
+    };
+  }
+
+  // Likewise there is no tool-call id field: carry it (and the tool name) in
+  // the content, so parallel results can be matched to the call that asked.
+  if (ToolMessage.isInstance(message)) {
+    return {
+      role,
+      content: JSON.stringify({
+        tool_call_id: message.tool_call_id,
+        ...(message.name ? { name: message.name } : {}),
+        content: message.text,
       }),
     };
   }
 
   const images = toChatImages(message);
   return { role, content: message.text, ...(images ? { images } : {}) };
+}
+
+/** Settles with `promise`, or rejects with the abort reason as soon as `signal` fires. */
+function rejectOnAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 function toLangChainToolCalls(toolCalls: QvacToolCall[]): ToolCall[] {
@@ -193,6 +252,8 @@ export class ChatQVAC extends BaseChatModel<ChatQVACCallOptions> {
       seed: options.seed,
       sessionId: options.sessionId,
       requestId: options.requestId,
+      responseFormat: options.responseFormat,
+      signal: options.signal,
     };
   }
 
@@ -201,9 +262,15 @@ export class ChatQVAC extends BaseChatModel<ChatQVACCallOptions> {
     options: this["ParsedCallOptions"],
     _runManager?: CallbackManagerForLLMRun,
   ): Promise<ChatResult> {
-    const result = await this.completeFn(this.buildRequest(messages, options));
+    options.signal?.throwIfAborted();
+    const result = await rejectOnAbort(
+      this.completeFn(this.buildRequest(messages, options)),
+      options.signal,
+    );
 
-    const aiMessage = new AIMessage({
+    // A chunk, not an `AIMessage`: LangChain's `withStructuredOutput` parser
+    // only accepts `AIMessageChunk`, the type `invoke` is declared to return.
+    const aiMessage = new AIMessageChunk({
       content: result.text,
       tool_calls: toLangChainToolCalls(result.toolCalls),
       additional_kwargs: result.thinkingText
