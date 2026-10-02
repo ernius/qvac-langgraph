@@ -29,6 +29,8 @@ export interface QvacChatCompletionRequest {
   seed?: number;
   /** Per-request KV cache session key, forwarded to whatever runs the completion. */
   sessionId?: string;
+  /** Caller-assigned id for this generation call, forwarded to whatever runs the completion - lets it track/cancel this call independently of any other in flight. */
+  requestId?: string;
 }
 
 export interface QvacChatCompletionResult {
