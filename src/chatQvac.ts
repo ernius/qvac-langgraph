@@ -55,6 +55,8 @@ export interface ChatQVACCallOptions extends BaseChatModelCallOptions {
   seed?: number;
   /** Per-call KV cache session key, forwarded in the completion request. */
   sessionId?: string;
+  /** Caller-assigned id for this specific generation call, forwarded in the completion request. */
+  requestId?: string;
 }
 
 /**
@@ -190,6 +192,7 @@ export class ChatQVAC extends BaseChatModel<ChatQVACCallOptions> {
       temperature: options.temperature ?? this.temperature,
       seed: options.seed,
       sessionId: options.sessionId,
+      requestId: options.requestId,
     };
   }
 

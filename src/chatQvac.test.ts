@@ -172,6 +172,24 @@ describe("ChatQVAC per-call temperature/seed/sessionId", () => {
     expect(completion.lastRequest?.temperature).toBe(0.4);
     expect(completion.lastRequest?.seed).toBeUndefined();
   });
+
+  it("forwards the per-call requestId", async () => {
+    const completion = new RecordingCompletion();
+    const model = new ChatQVAC({ complete: completion.complete });
+
+    await model.invoke([new HumanMessage("hi")], { requestId: "req-1" });
+
+    expect(completion.lastRequest?.requestId).toBe("req-1");
+  });
+
+  it("leaves requestId undefined when not passed", async () => {
+    const completion = new RecordingCompletion();
+    const model = new ChatQVAC({ complete: completion.complete });
+
+    await model.invoke([new HumanMessage("hi")]);
+
+    expect(completion.lastRequest?.requestId).toBeUndefined();
+  });
 });
 
 describe("ChatQVAC.bindTools", () => {

@@ -1,6 +1,6 @@
 {
   "name": "@space-uy/qvac-langgraph",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "LangChain chat model (ChatQVAC) that runs local QVAC completions, for use in LangChain runnables and LangGraph graphs.",
   "type": "module",
   "author": "ernius <ecopello@spacedev.io>",
